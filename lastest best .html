@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macro Tracker V7</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f8f7f4;
+      --surface: #ffffff;
+      --border: #e8e6e0;
+      --border-strong: #c8c4bc;
+      --text: #1a1916;
+      --muted: #6b6860;
+      --faint: #9a9790;
+      --green: #2d6a4f; --green-bg: #eaf4ee;
+      --amber: #92400e; --amber-bg: #fef3c7;
+      --red: #991b1b;   --red-bg: #fef2f2;
+      --radius: 16px; --radius-sm: 8px; --radius-pill: 999px;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── BLINK OVERLAY ── */
+    #blinkOverlay {
+      position: fixed; inset: 0; z-index: 9999;
+      pointer-events: none; opacity: 0;
+    }
+    @keyframes blinkBW {
+      0%,100%  { background: #000; opacity: 0; }
+      10%,30%,50%,70%,90% { background: #000; opacity: 1; }
+      20%,40%,60%,80%     { background: #fff; opacity: 1; }
+      95% { opacity: 0.3; }
+    }
+    .blinking { animation: blinkBW 5s ease-in-out forwards !important; }
+
+    /* ── PIN SCREEN ── */
+    #pinScreen {
+      position: fixed; inset: 0;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 100; gap: 2rem;
+      padding: 2rem;
+    }
+    .pin-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 1.4rem; font-weight: 500;
+      text-align: center; letter-spacing: -0.5px;
+    }
+    .pin-sub { font-size: 0.8rem; color: var(--faint); text-align: center; }
+    .pin-dots {
+      display: flex; gap: 16px; justify-content: center;
+    }
+    .pin-dot {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--border-strong);
+      background: transparent;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .pin-dot.filled { background: var(--text); border-color: var(--text); }
+    .pin-dot.error  { background: var(--red);  border-color: var(--red); }
+    .pin-keypad {
+      display: grid;
+      grid-template-columns: repeat(3, 72px);
+      gap: 10px;
+    }
+    .pin-key {
+      height: 64px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      font-family: 'DM Mono', monospace;
+      font-size: 1.2rem; font-weight: 500;
+      cursor: pointer;
+      transition: background 0.1s, transform 0.08s;
+    }
+    .pin-key:active { background: var(--border); transform: scale(0.95); }
+    .pin-key.backspace { font-size: 0.9rem; color: var(--muted); }
+    .pin-key.empty { border: none; background: transparent; cursor: default; }
+    .pin-msg {
+      font-size: 0.8rem; height: 1rem; text-align: center;
+      color: var(--red); transition: opacity 0.2s;
+    }
+    #pinScreen.hidden { display: none; }
+
+    /* ── MAIN APP ── */
+    #app { display: none; padding: 2rem 1rem 4rem; }
+    #app.visible { display: block; }
+    .container { max-width: 680px; margin: 0 auto; }
+
+    .header {
+      display: flex; align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 2rem; padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .header-left h1 {
+      font-family: 'DM Mono', monospace;
+      font-size: 1.6rem; font-weight: 500;
+      letter-spacing: -0.5px; line-height: 1;
+    }
+    .header-left .tagline { font-size: 0.78rem; color: var(--faint); margin-top: 4px; }
+    .header-right { display: flex; gap: 8px; align-items: center; }
+    .pill-badge {
+      background: var(--text); color: #fff;
+      font-size: 0.7rem; font-weight: 500;
+      padding: 4px 10px; border-radius: var(--radius-pill);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+    .card-title {
+      font-size: 0.72rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 1px;
+      color: var(--faint); margin-bottom: 1rem;
+    }
+
+    .macro-grid {
+      display: grid; grid-template-columns: repeat(4,1fr);
+      gap: 8px; margin-bottom: 1rem;
+    }
+    .macro-tile {
+      background: var(--bg); border-radius: var(--radius-sm);
+      padding: 0.85rem 0.5rem 0.75rem;
+      text-align: center; border: 1px solid var(--border);
+    }
+    .macro-tile-label { font-size: 0.65rem; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
+    .macro-tile-val { font-family: 'DM Mono', monospace; font-size: 1.65rem; font-weight: 500; line-height: 1; }
+    .macro-tile-unit { font-size: 0.65rem; color: var(--faint); margin-top: 2px; }
+
+    .progress-section { display: flex; flex-direction: column; gap: 10px; }
+    .progress-row { display: flex; flex-direction: column; gap: 4px; }
+    .progress-meta { display: flex; justify-content: space-between; font-size: 0.75rem; }
+    .progress-name { color: var(--muted); font-weight: 500; }
+    .progress-nums { font-family: 'DM Mono', monospace; color: var(--muted); }
+    .progress-track { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+    .fill-protein { background: var(--text); }
+    .fill-carbs   { background: #888; }
+    .fill-fat     { background: #aaa; }
+    .fill-kcal    { background: #555; }
+    .fill-over    { background: var(--red); }
+
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 0.8rem; font-weight: 500;
+      padding: 6px 14px; border-radius: var(--radius-pill);
+      margin-top: 1rem; width: 100%; justify-content: center;
+    }
+    .status-good  { background: var(--green-bg); color: var(--green); }
+    .status-warn  { background: var(--amber-bg); color: var(--amber); }
+    .status-low   { background: var(--red-bg); color: var(--red); }
+    .status-idle  { background: var(--bg); color: var(--faint); border: 1px solid var(--border); }
+
+    .input-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input[type="text"], input[type="number"] {
+      height: 40px; padding: 0 14px;
+      border: 1px solid var(--border); border-radius: var(--radius-pill);
+      background: var(--bg); color: var(--text);
+      font-family: 'DM Sans', sans-serif; font-size: 0.88rem;
+      flex: 1; min-width: 100px; transition: border-color 0.15s;
+    }
+    input:focus { outline: none; border-color: var(--border-strong); background: #fff; }
+    .btn {
+      height: 40px; padding: 0 18px;
+      border-radius: var(--radius-pill);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.85rem; font-weight: 500;
+      cursor: pointer; border: none;
+      transition: opacity 0.15s, transform 0.1s; white-space: nowrap;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary  { background: var(--text); color: #fff; }
+    .btn-outline  { background: transparent; border: 1px solid var(--border-strong); color: var(--text); }
+    .btn-ghost    { background: var(--bg); border: 1px solid var(--border); color: var(--muted); }
+    .btn-danger   { background: var(--red-bg); border: 1px solid #fca5a5; color: var(--red); }
+    .btn-sm { height: 32px; padding: 0 12px; font-size: 0.78rem; }
+
+    .meal-log { display: flex; flex-direction: column; gap: 1px; }
+    .meal-entry {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0; border-bottom: 1px solid var(--border); gap: 8px;
+    }
+    .meal-entry:last-child { border-bottom: none; }
+    .meal-name { font-size: 0.88rem; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meal-macros { display: flex; gap: 6px; font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--muted); flex-shrink: 0; }
+    .meal-macro-chip { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
+    .meal-delete { background: none; border: none; cursor: pointer; color: var(--faint); font-size: 0.9rem; padding: 2px 4px; border-radius: 4px; transition: color 0.1s; flex-shrink: 0; }
+    .meal-delete:hover { color: var(--red); }
+    .empty-log { text-align: center; padding: 1.5rem 0; color: var(--faint); font-size: 0.82rem; }
+
+    .sync-status { margin-top: 10px; font-size: 0.75rem; color: var(--faint); border-top: 1px solid var(--border); padding-top: 10px; }
+    .sync-row { display: flex; gap: 8px; margin-top: 8px; }
+    .auth-info { font-size: 0.82rem; color: var(--muted); }
+
+    .goals-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .goal-field label { font-size: 0.72rem; color: var(--muted); font-weight: 500; display: block; margin-bottom: 4px; }
+
+    #toast {
+      position: fixed; bottom: 2rem; left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--text); color: #fff;
+      font-size: 0.82rem; font-weight: 500;
+      padding: 10px 20px; border-radius: var(--radius-pill);
+      opacity: 0; transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none; z-index: 998; white-space: nowrap;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    footer { text-align: center; font-size: 0.68rem; color: var(--faint); margin-top: 2rem; }
+
+    @media (max-width: 480px) {
+      .macro-grid { grid-template-columns: repeat(2,1fr); }
+      .macro-tile-val { font-size: 1.35rem; }
+      .goals-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="blinkOverlay"></div>
+<div id="toast"></div>
+
+<!-- PIN SCREEN -->
+<div id="pinScreen">
+  <div>
+    <div class="pin-title">MACRO TRACKER</div>
+    <div class="pin-sub" style="margin-top:6px">Enter your 4-digit PIN</div>
+  </div>
+  <div class="pin-dots" id="pinDots">
+    <div class="pin-dot" id="d0"></div>
+    <div class="pin-dot" id="d1"></div>
+    <div class="pin-dot" id="d2"></div>
+    <div class="pin-dot" id="d3"></div>
+  </div>
+  <div class="pin-msg" id="pinMsg"></div>
+  <div class="pin-keypad" id="pinKeypad">
+    <button class="pin-key" data-k="1">1</button>
+    <button class="pin-key" data-k="2">2</button>
+    <button class="pin-key" data-k="3">3</button>
+    <button class="pin-key" data-k="4">4</button>
+    <button class="pin-key" data-k="5">5</button>
+    <button class="pin-key" data-k="6">6</button>
+    <button class="pin-key" data-k="7">7</button>
+    <button class="pin-key" data-k="8">8</button>
+    <button class="pin-key" data-k="9">9</button>
+    <button class="pin-key empty" disabled></button>
+    <button class="pin-key" data-k="0">0</button>
+    <button class="pin-key backspace" id="pinBack">⌫</button>
+  </div>
+  <div style="margin-top:0.5rem; display:flex; flex-direction:column; align-items:center; gap:8px;">
+    <div class="pin-sub" style="opacity:0.5">or</div>
+    <button id="guestBtn" class="btn btn-ghost btn-sm" style="min-width:160px">Continue as Guest</button>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+<div class="container">
+
+  <div class="header">
+    <div class="header-left">
+      <h1>MACRO<br>TRACKER</h1>
+      <div class="tagline">lean bulk · PIN-locked · cloud sync</div>
+    </div>
+    <div class="header-right">
+      <span class="pill-badge">V7</span>
+      <button class="btn btn-ghost btn-sm" id="lockBtn">🔒 Lock</button>
+    </div>
+  </div>
+
+  <!-- Cloud Sync -->
+  <div class="card">
+    <div class="card-title">Cloud Sync</div>
+    <div class="auth-info" id="syncUserInfo">Signed in anonymously</div>
+    <div class="sync-status" id="syncStatus">Initialising…</div>
+    <div class="sync-row">
+      <button id="manualSyncBtn" class="btn btn-ghost btn-sm">↓ Pull cloud</button>
+      <button id="pushToCloudBtn" class="btn btn-ghost btn-sm">↑ Push cloud</button>
+    </div>
+  </div>
+
+  <!-- Daily Goals -->
+  <div class="card">
+    <div class="card-title">Daily Goals</div>
+    <div class="goals-grid">
+      <div class="goal-field"><label>Protein (g)</label><input id="goalProtein" type="number" value="175" min="0"></div>
+      <div class="goal-field"><label>Carbs (g)</label><input id="goalCarbs" type="number" value="250" min="0"></div>
+      <div class="goal-field"><label>Fat (g)</label><input id="goalFat" type="number" value="70" min="0"></div>
+      <div class="goal-field"><label>Calories (kcal)</label><input id="goalCalories" type="number" value="2400" min="0"></div>
+    </div>
+    <button id="saveGoalsBtn" class="btn btn-outline btn-sm" style="margin-top:10px">Save goals</button>
+  </div>
+
+  <!-- Today's Totals -->
+  <div class="card">
+    <div class="card-title">Today's Totals</div>
+    <div class="macro-grid">
+      <div class="macro-tile"><div class="macro-tile-label">Protein</div><div class="macro-tile-val" id="proteinVal">0</div><div class="macro-tile-unit">grams</div></div>
+      <div class="macro-tile"><div class="macro-tile-label">Carbs</div><div class="macro-tile-val" id="carbsVal">0</div><div class="macro-tile-unit">grams</div></div>
+      <div class="macro-tile"><div class="macro-tile-label">Fat</div><div class="macro-tile-val" id="fatVal">0</div><div class="macro-tile-unit">grams</div></div>
+      <div class="macro-tile"><div class="macro-tile-label">Calories</div><div class="macro-tile-val" id="caloriesVal">0</div><div class="macro-tile-unit">kcal</div></div>
+    </div>
+    <div class="progress-section">
+      <div class="progress-row">
+        <div class="progress-meta"><span class="progress-name">Protein</span><span class="progress-nums" id="progProteinText">0 / 175g</span></div>
+        <div class="progress-track"><div class="progress-fill fill-protein" id="progProtein" style="width:0%"></div></div>
+      </div>
+      <div class="progress-row">
+        <div class="progress-meta"><span class="progress-name">Carbs</span><span class="progress-nums" id="progCarbsText">0 / 250g</span></div>
+        <div class="progress-track"><div class="progress-fill fill-carbs" id="progCarbs" style="width:0%"></div></div>
+      </div>
+      <div class="progress-row">
+        <div class="progress-meta"><span class="progress-name">Fat</span><span class="progress-nums" id="progFatText">0 / 70g</span></div>
+        <div class="progress-track"><div class="progress-fill fill-fat" id="progFat" style="width:0%"></div></div>
+      </div>
+      <div class="progress-row">
+        <div class="progress-meta"><span class="progress-name">Calories</span><span class="progress-nums" id="progKcalText">0 / 2400</span></div>
+        <div class="progress-track"><div class="progress-fill fill-kcal" id="progKcal" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div id="statusPill" class="status-pill status-idle">Loading…</div>
+    <div style="margin-top:10px;text-align:right">
+      <button id="resetTodayBtn" class="btn btn-danger btn-sm">Reset today</button>
+    </div>
+  </div>
+
+  <!-- Log Meal -->
+  <div class="card">
+    <div class="card-title">Log Meal</div>
+    <div class="input-row">
+      <input id="foodInput" type="text" placeholder="Food name (e.g. chicken breast)" style="flex:2">
+      <input id="gramsInput" type="number" value="100" step="10" style="width:80px;flex:none">
+      <span style="font-size:0.8rem;color:var(--muted);flex-shrink:0">g</span>
+    </div>
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button id="searchFoodBtn" class="btn btn-primary">Add food</button>
+      <div id="foodResult" style="font-size:0.8rem;color:var(--muted)"></div>
+    </div>
+  </div>
+
+  <!-- Meal History -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+      <div class="card-title" style="margin-bottom:0">Meal History</div>
+      <span id="mealCount" style="font-size:0.72rem;color:var(--faint)">0 entries</span>
+    </div>
+    <div id="mealLog" class="meal-log"><div class="empty-log">No meals logged yet today</div></div>
+  </div>
+
+  <footer>Food data from OpenFoodFacts · Firebase sync · PIN-locked V7</footer>
+</div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const FB = {
+  apiKey:"AIzaSyD5y62on9PNas1TZLMvkwYN4cQKCVoYLb0",
+  authDomain:"v5-macros-tracker.firebaseapp.com",
+  projectId:"v5-macros-tracker",
+  storageBucket:"v5-macros-tracker.firebasestorage.app",
+  messagingSenderId:"385180050839",
+  appId:"1:385180050839:web:ed1f346a3a800a8cf7d0d2"
+};
+
+let auth, db, fbUser = null, cloudReady = false;
+
+// ── PIN state ──
+let pinBuffer = "";
+let activePin = "";  // currently unlocked PIN
+const DEFAULT_GOALS = { protein:175, carbs:250, fat:70, calories:2400 };
+const DEFAULT_DATA  = { protein:0, carbs:0, fat:0, calories:0 };
+
+// ── Per-PIN storage helpers ──
+function pinKey(pin, suffix) { return `mt7_${pin}_${suffix}`; }
+function loadPinData(pin) {
+  return JSON.parse(localStorage.getItem(pinKey(pin,"data"))) || {...DEFAULT_DATA};
+}
+function loadPinGoals(pin) {
+  return JSON.parse(localStorage.getItem(pinKey(pin,"goals"))) || {...DEFAULT_GOALS};
+}
+function loadPinLog(pin) {
+  return JSON.parse(localStorage.getItem(pinKey(pin,"log"))) || [];
+}
+function savePinData(pin, data) { localStorage.setItem(pinKey(pin,"data"), JSON.stringify(data)); }
+function savePinGoals(pin, goals){ localStorage.setItem(pinKey(pin,"goals"),JSON.stringify(goals)); }
+function saveAll() {
+  if(isGuest) return;
+  savePinData(activePin, data);
+  savePinLog(activePin, mealLog);
+}
+
+// Working copies (loaded on unlock)
+let data={}, goals={}, mealLog=[];
+
+// ── DOM helpers ──
+const $ = id => document.getElementById(id);
+let blinkActive = false;
+
+function toast(msg, dur=2200) {
+  const t=$("toast"); t.textContent=msg; t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"), dur);
+}
+
+// ── PIN UI ──
+function updateDots(err=false) {
+  for(let i=0;i<4;i++){
+    const d=$("d"+i);
+    d.className="pin-dot"+(i<pinBuffer.length?" filled":"")+(err?" error":"");
+  }
+}
+
+document.getElementById("pinKeypad").addEventListener("click", e=>{
+  const btn = e.target.closest(".pin-key");
+  if(!btn||btn.disabled) return;
+  if(btn.id==="pinBack"){ pinBuffer=pinBuffer.slice(0,-1); updateDots(); return; }
+  const k = btn.dataset.k;
+  if(k===undefined) return;
+  if(pinBuffer.length>=4) return;
+  pinBuffer += k;
+  updateDots();
+  if(pinBuffer.length===4) setTimeout(attemptUnlock, 120);
+});
+
+const OWNER_PIN = "2412";
+let isGuest = false;
+
+function attemptUnlock() {
+  const pin = pinBuffer;
+  pinBuffer = "";
+
+  if(pin === OWNER_PIN) {
+    isGuest   = false;
+    activePin = pin;
+    data    = loadPinData(pin);
+    goals   = loadPinGoals(pin);
+    mealLog = loadPinLog(pin);
+    updateDots();
+    showApp();
+  } else {
+    // Wrong PIN — red flash, stay on lock screen
+    updateDots(true);
+    $("pinMsg").textContent = "Incorrect PIN";
+    setTimeout(() => { updateDots(); $("pinMsg").textContent = ""; }, 1200);
+  }
+}
+
+function enterGuest() {
+  isGuest   = true;
+  activePin = "";
+  data    = {...DEFAULT_DATA};
+  goals   = {...DEFAULT_GOALS};
+  mealLog = [];
+  showApp();
+  toast("Guest mode — nothing will be saved");
+}
+
+document.getElementById("guestBtn").onclick = enterGuest;
+
+function showApp() {
+  $("pinScreen").classList.add("hidden");
+  $("app").classList.add("visible");
+  // Show guest badge if needed
+  const hdr = document.querySelector(".header-right");
+  const existing = document.getElementById("guestBadge");
+  if(existing) existing.remove();
+  if(isGuest) {
+    const b = document.createElement("span");
+    b.id = "guestBadge";
+    b.className = "pill-badge";
+    b.style.cssText = "background:#888";
+    b.textContent = "Guest";
+    hdr.insertBefore(b, hdr.firstChild);
+  }
+  loadGoalsToInputs();
+  updateUI();
+  initFirebase();
+}
+
+function lockApp() {
+  activePin=""; data={}; goals={}; mealLog=[];
+  $("pinScreen").classList.remove("hidden");
+  $("app").classList.remove("visible");
+  pinBuffer=""; updateDots();
+  $("pinMsg").textContent="";
+}
+
+$("lockBtn").onclick = lockApp;
+
+// ── Blink ──
+function triggerBlink() {
+  if(blinkActive) return;
+  blinkActive=true;
+  const ov=$("blinkOverlay");
+  ov.classList.add("blinking");
+  setTimeout(()=>{ ov.classList.remove("blinking"); blinkActive=false; }, 5200);
+}
+
+function checkBlink() {
+  // Blink when ANY macro reaches ≥90% of goal
+  const checks = [
+    data.protein  / goals.protein,
+    data.carbs    / goals.carbs,
+    (data.fat||0) / goals.fat,
+    data.calories / goals.calories
+  ];
+  if(checks.some(r => r>=0.90 && r<=1.10)) triggerBlink();
+}
+
+// ── Progress & UI ──
+function pct(val, goal) { return goal ? Math.min(100, Math.round(val/goal*100)) : 0; }
+function setBar(barId, textId, val, goal, unit) {
+  const p = pct(val,goal);
+  const bar=$(barId);
+  bar.style.width = p+"%";
+  const over = val > goal*1.05;
+  const cls = barId.replace("prog","fill-").toLowerCase();
+  bar.className = "progress-fill "+(over?"fill-over":cls);
+  $(textId).textContent = `${Math.floor(val)} / ${goal}${unit}`;
+}
+
+function updateUI() {
+  $("proteinVal").textContent  = Math.floor(data.protein||0);
+  $("carbsVal").textContent    = Math.floor(data.carbs||0);
+  $("fatVal").textContent      = Math.floor(data.fat||0);
+  $("caloriesVal").textContent = Math.floor(data.calories||0);
+
+  setBar("progProtein","progProteinText", data.protein||0, goals.protein, "g");
+  setBar("progCarbs",  "progCarbsText",   data.carbs||0,   goals.carbs,   "g");
+  setBar("progFat",    "progFatText",     data.fat||0,     goals.fat,     "g");
+  setBar("progKcal",   "progKcalText",    data.calories||0,goals.calories,"");
+
+  const p = data.protein||0;
+  let cls, msg;
+  if(p < 100)                { cls="status-low";  msg="⚠ Low protein — muscle risk"; }
+  else if(p < goals.protein*0.9){ cls="status-warn"; msg="Almost at protein target"; }
+  else                       { cls="status-good"; msg="Protein goal on track ✓"; }
+  if(data.calories < 1500)   msg += " · Calories very low";
+  else if(data.calories > goals.calories*1.1) msg += " · Calorie surplus";
+  $("statusPill").className = "status-pill "+cls;
+  $("statusPill").textContent = msg;
+
+  renderMealLog();
+  checkBlink();
+}
+
+function renderMealLog() {
+  const logEl = $("mealLog");
+  $("mealCount").textContent = mealLog.length+" entr"+(mealLog.length===1?"y":"ies");
+  if(!mealLog.length){ logEl.innerHTML='<div class="empty-log">No meals logged yet today</div>'; return; }
+  logEl.innerHTML = [...mealLog].reverse().map((e,ri)=>{
+    const i = mealLog.length-1-ri;
+    return `<div class="meal-entry">
+      <span class="meal-name">${e.name} <span style="color:var(--faint);font-weight:400">${e.grams}g</span></span>
+      <div class="meal-macros">
+        <span class="meal-macro-chip">${Math.round(e.protein)}P</span>
+        <span class="meal-macro-chip">${Math.round(e.carbs)}C</span>
+        <span class="meal-macro-chip">${Math.round(e.fat)}F</span>
+        <span class="meal-macro-chip">${Math.round(e.calories)}kcal</span>
+      </div>
+      <button class="meal-delete" onclick="window._del(${i})" title="Remove">✕</button>
+    </div>`;
+  }).join("");
+}
+
+window._del = function(i) {
+  const e = mealLog[i];
+  mealLog.splice(i,1);
+  data.protein  = Math.max(0,(data.protein||0)-e.protein);
+  data.carbs    = Math.max(0,(data.carbs||0)-e.carbs);
+  data.fat      = Math.max(0,(data.fat||0)-e.fat);
+  data.calories = Math.max(0,(data.calories||0)-e.calories);
+  saveAll();
+  updateUI(); toast("Entry removed");
+};
+
+// ── Goals ──
+function loadGoalsToInputs() {
+  $("goalProtein").value  = goals.protein;
+  $("goalCarbs").value    = goals.carbs;
+  $("goalFat").value      = goals.fat;
+  $("goalCalories").value = goals.calories;
+}
+$("saveGoalsBtn").onclick = () => {
+  goals = {
+    protein:  Math.max(1,parseInt($("goalProtein").value)||175),
+    carbs:    Math.max(1,parseInt($("goalCarbs").value)||250),
+    fat:      Math.max(1,parseInt($("goalFat").value)||70),
+    calories: Math.max(1,parseInt($("goalCalories").value)||2400)
+  };
+  if(!isGuest) savePinGoals(activePin, goals);
+  updateUI(); toast(isGuest ? "Goals updated (guest, not saved)" : "Goals saved ✓");
+};
+
+// ── Food ──
+async function searchAndAdd() {
+  const query = $("foodInput").value.trim();
+  const grams = parseFloat($("gramsInput").value);
+  if(!query){ toast("Enter a food name"); return; }
+  if(isNaN(grams)||grams<=0||grams>3000){ toast("Enter valid grams"); return; }
+  $("foodResult").textContent="Searching…";
+  $("searchFoodBtn").disabled=true;
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=5`);
+    const json = await res.json();
+    if(!json.products?.length) throw new Error("not found");
+    const product = json.products.find(p=>p.nutriments)||json.products[0];
+    const n = product.nutriments||{};
+    const f = grams/100;
+    const protein  = Math.max(0,(n.proteins_100g||n.proteins||0))*f;
+    const carbs    = Math.max(0,(n.carbohydrates_100g||n.carbohydrates||0))*f;
+    const fat      = Math.max(0,(n.fat_100g||n.fat||0))*f;
+    const calories = Math.max(0,(n.energy_kcal_100g||n.energy_kcal||(n.energy?n.energy/4.184:0)))*f;
+    const name = product.product_name||query;
+    data.protein  += protein;
+    data.carbs    += carbs;
+    data.fat      += fat;
+    data.calories += calories;
+    mealLog.push({name,grams,protein,carbs,fat,calories,time:Date.now()});
+    saveAll();
+    updateUI();
+    $("foodResult").textContent=`✓ ${name} added`;
+    $("foodInput").value=""; $("gramsInput").value="100";
+    toast(`+${Math.round(protein)}P +${Math.round(carbs)}C +${Math.round(fat)}F +${Math.round(calories)}kcal`);
+  } catch { $("foodResult").textContent="Not found — try 'chicken', 'rice'"; }
+  $("searchFoodBtn").disabled=false;
+}
+$("searchFoodBtn").onclick = searchAndAdd;
+$("foodInput").addEventListener("keydown",e=>{ if(e.key==="Enter") searchAndAdd(); });
+
+// ── Reset ──
+$("resetTodayBtn").onclick = () => {
+  if(!confirm("Reset today's macros and meal log?")) return;
+  data={...DEFAULT_DATA}; mealLog=[];
+  saveAll();
+  updateUI(); toast("Today reset ✓");
+};
+
+// ── Firebase (silent anon auth, PIN as doc key) ──
+async function initFirebase() {
+  try {
+    const app = initializeApp(FB, "mt7");
+    auth = getAuth(app);
+    db   = getFirestore(app);
+    await signInAnonymously(auth);
+    cloudReady = true;
+    $("syncUserInfo").textContent = "Syncing as PIN-locked profile";
+    $("syncStatus").textContent = "☁ Cloud ready · Pull or Push";
+  } catch(e) {
+    $("syncStatus").textContent = "Firebase unavailable – local only";
+  }
+}
+
+async function pushToCloud() {
+  if(!cloudReady){ toast("Cloud not ready"); return; }
+  try {
+    await setDoc(doc(db,"pinProfiles",activePin),{
+      data, goals, mealLog, updated: new Date().toISOString()
+    });
+    toast("Pushed to cloud ✓");
+    $("syncStatus").textContent = "☁ Pushed · "+new Date().toLocaleTimeString();
+  } catch(e){ toast("Push failed: "+e.message); }
+}
+
+async function pullFromCloud() {
+  if(!cloudReady){ toast("Cloud not ready"); return; }
+  try {
+    const snap = await getDoc(doc(db,"pinProfiles",activePin));
+    if(snap.exists()){
+      const c = snap.data();
+      data    = c.data    || {...DEFAULT_DATA};
+      goals   = c.goals   || {...DEFAULT_GOALS};
+      mealLog = c.mealLog || [];
+      savePinData(activePin, data);
+      savePinGoals(activePin, goals);
+      savePinLog(activePin, mealLog);
+      loadGoalsToInputs();
+      updateUI();
+      toast("Cloud data loaded ✓");
+      $("syncStatus").textContent = "☁ Pulled · "+new Date().toLocaleTimeString();
+    } else {
+      toast("No cloud data for this PIN yet");
+    }
+  } catch(e){ toast("Pull failed: "+e.message); }
+}
+
+$("manualSyncBtn").onclick  = pullFromCloud;
+$("pushToCloudBtn").onclick = pushToCloud;
+</script>
+</body>
+</html>
